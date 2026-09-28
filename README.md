@@ -51,4 +51,4 @@
 Copy loadstring di bawah, paste ke executor:
 
 ```lua
-loadstring(game:HttpGet("https://raw.githubusercontent.com/Ysufu/YuszxTools/main/MiniIDE.lua"))()
+loadstring(game:HttpGet("https://raw.githubusercontent.com/Ysufu/RBXTools/refs/heads/main/debug-cons.lua"))()
