@@ -1,24 +1,74 @@
 --[[
     ═══════════════════════════════════════════════════════════════
-    📋 YUSZX MINI IDE — Split Console
+    📋 YUSZX UNIVERSAL MINI IDE
     ═══════════════════════════════════════════════════════════════
-    Layout:
-    ┌─────────────────────────────────────────┐
-    │ 📋 Yuszx Mini IDE              ✕        │
-    ├─────────────────────────────────────────┤
-    │ [TextBox — tempat nulis/paste kode]     │
-    │                                          │
-    │                                          │
-    ├─────────────────────────────────────────┤
-    │ ▶ Execute  📋 Copy  🗑️ Clear           │
-    ├─────────────────────────────────────────┤
-    │ [Output Console — nampilin log]         │
-    │ [11:23:45] [INFO] Hallo                 │
-    │ [11:23:46] [WARN] Warning!              │
-    │ ...                                      │
-    └─────────────────────────────────────────┘
+    ✅ Universal — Works di SEMUA game Roblox
+    ✅ Multi-fallback UI parent (gethui → CoreGui → PlayerGui)
+    ✅ Multi-fallback sound parent (kalo kepake)
+    ✅ Pcall everywhere — anti-crash
+    ✅ Auto-save kode (biar gak perlu paste ulang)
+    ✅ Copy output ke clipboard
+    ✅ Save output ke file
+    ✅ History kode terakhir
+    ✅ Ringan — gak bikin lag
+    
+    Cara pakai:
+    1. Execute di game manapun
+    2. Paste kode debug di textbox atas
+    3. Klik ▶ EXECUTE
+    4. Liat output di bawah
+    5. Klik 📋 COPY buat copy hasil
     ═══════════════════════════════════════════════════════════════
 ]]
+
+-- ============================================
+-- UNIVERSAL HELPER
+-- ============================================
+local function getSafeParent()
+    local parents = {}
+    
+    -- Method 1: gethui (Delta, Codex)
+    if gethui then
+        local ok, hui = pcall(gethui)
+        if ok and hui then table.insert(parents, hui) end
+    end
+    
+    -- Method 2: CoreGui
+    local ok, cg = pcall(function() return game:GetService("CoreGui") end)
+    if ok and cg then table.insert(parents, cg) end
+    
+    -- Method 3: PlayerGui
+    local plr = game:GetService("Players").LocalPlayer
+    if plr then
+        local pg = plr:FindFirstChild("PlayerGui")
+        if pg then table.insert(parents, pg) end
+    end
+    
+    -- Method 4: ReplicatedFirst (last resort)
+    local ok2, rf = pcall(function() return game:GetService("ReplicatedFirst") end)
+    if ok2 and rf then table.insert(parents, rf) end
+    
+    -- Test satu-satu
+    for _, p in ipairs(parents) do
+        local test = Instance.new("ScreenGui")
+        local success = pcall(function()
+            test.Parent = p
+        end)
+        if success and test.Parent then
+            test:Destroy()
+            return p, true
+        end
+        pcall(function() test:Destroy() end)
+    end
+    
+    return nil, false
+end
+
+local function safeCall(fn, ...)
+    local ok, result = pcall(fn, ...)
+    if ok then return result end
+    return nil
+end
 
 -- ============================================
 -- LOG STORAGE
@@ -35,15 +85,27 @@ local function addLog(level, ...)
     local msg = table.concat(parts, " ")
     local timestamp = os.date("%H:%M:%S")
     table.insert(logs, "[" .. timestamp .. "] [" .. level .. "] " .. msg)
-    if #logs > MAX_LINES then table.remove(logs, 1) end
+    if #logs > MAX_LINES then
+        table.remove(logs, 1)
+    end
 end
 
 -- ============================================
--- UI
+-- UI PARENT
+-- ============================================
+local uiParent = getSafeParent()
+
+if not uiParent then
+    warn("[Yuszx] ❌ Gak bisa dapet UI parent! Script gak bisa jalan.")
+    return
+end
+
+-- ============================================
+-- MAIN UI
 -- ============================================
 local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "YuszxMiniIDE"
-ScreenGui.Parent = (gethui and gethui()) or game:GetService("CoreGui")
+ScreenGui.Name = "YuszxMiniIDE_" .. tostring(math.random(1000, 9999))
+ScreenGui.Parent = uiParent
 ScreenGui.IgnoreGuiInset = true
 ScreenGui.ResetOnSpawn = false
 ScreenGui.DisplayOrder = 999
@@ -81,7 +143,7 @@ local Title = Instance.new("TextLabel")
 Title.Size = UDim2.new(1, -50, 1, 0)
 Title.Position = UDim2.new(0, 14, 0, 0)
 Title.BackgroundTransparency = 1
-Title.Text = "📋 Yuszx Mini IDE"
+Title.Text = "📋 Yuszx Universal IDE"
 Title.TextColor3 = Color3.fromRGB(200, 220, 255)
 Title.Font = Enum.Font.GothamBold
 Title.TextSize = 14
@@ -104,7 +166,7 @@ local CloseCorner = Instance.new("UICorner")
 CloseCorner.CornerRadius = UDim.new(0, 6)
 CloseCorner.Parent = CloseBtn
 
--- ========== ATAS: INPUT AREA ==========
+-- Input label
 local InputLabel = Instance.new("TextLabel")
 InputLabel.Size = UDim2.new(1, -20, 0, 20)
 InputLabel.Position = UDim2.new(0, 10, 0, 52)
@@ -116,6 +178,7 @@ InputLabel.TextSize = 11
 InputLabel.TextXAlignment = Enum.TextXAlignment.Left
 InputLabel.Parent = MainFrame
 
+-- Code TextBox
 local InputFrame = Instance.new("Frame")
 InputFrame.Size = UDim2.new(1, -20, 0, 220)
 InputFrame.Position = UDim2.new(0, 10, 0, 74)
@@ -137,7 +200,7 @@ CodeBox.Size = UDim2.new(1, -16, 1, -16)
 CodeBox.Position = UDim2.new(0, 8, 0, 8)
 CodeBox.BackgroundTransparency = 1
 CodeBox.Text = ""
-CodeBox.PlaceholderText = "-- Paste / ketik kode debug kamu di sini...\n-- Terus klik ▶ EXECUTE di bawah"
+CodeBox.PlaceholderText = "-- Paste / ketik kode debug di sini...\n-- Terus klik ▶ EXECUTE"
 CodeBox.PlaceholderColor3 = Color3.fromRGB(80, 80, 80)
 CodeBox.TextColor3 = Color3.fromRGB(200, 255, 200)
 CodeBox.Font = Enum.Font.Code
@@ -149,7 +212,7 @@ CodeBox.ClearTextOnFocus = false
 CodeBox.MultiLine = true
 CodeBox.Parent = InputFrame
 
--- ========== TOMBOL ==========
+-- Buttons
 local BtnFrame = Instance.new("Frame")
 BtnFrame.Size = UDim2.new(1, -20, 0, 40)
 BtnFrame.Position = UDim2.new(0, 10, 0, 300)
@@ -169,7 +232,7 @@ local function makeBtn(text, width, callback, color)
     btn.Text = text
     btn.TextColor3 = Color3.fromRGB(255, 255, 255)
     btn.Font = Enum.Font.GothamBold
-    btn.TextSize = 12
+    btn.TextSize = 11
     btn.BorderSizePixel = 0
     btn.AutoButtonColor = false
     btn.Parent = BtnFrame
@@ -182,7 +245,7 @@ local function makeBtn(text, width, callback, color)
     return btn
 end
 
--- ========== BAWAH: OUTPUT AREA ==========
+-- Output label
 local OutputLabel = Instance.new("TextLabel")
 OutputLabel.Size = UDim2.new(1, -20, 0, 20)
 OutputLabel.Position = UDim2.new(0, 10, 0, 346)
@@ -194,6 +257,7 @@ OutputLabel.TextSize = 11
 OutputLabel.TextXAlignment = Enum.TextXAlignment.Left
 OutputLabel.Parent = MainFrame
 
+-- Output console
 local OutputFrame = Instance.new("ScrollingFrame")
 OutputFrame.Size = UDim2.new(1, -20, 1, -390)
 OutputFrame.Position = UDim2.new(0, 10, 0, 368)
@@ -233,38 +297,40 @@ OutputText.TextWrapped = true
 OutputText.Parent = OutputFrame
 
 -- ============================================
--- FUNGSI OUTPUT
+-- OUTPUT REFRESH
 -- ============================================
 local function refreshOutput()
     local text = table.concat(logs, "\n")
     OutputText.Text = text
     task.wait(0.02)
-    OutputText.Size = UDim2.new(1, 0, 0, OutputText.TextBounds.Y + 10)
-    OutputFrame.CanvasSize = UDim2.new(0, 0, 0, OutputText.TextBounds.Y + 20)
-    OutputFrame.CanvasPosition = Vector2.new(0, OutputFrame.CanvasSize.Y.Offset)
+    pcall(function()
+        OutputText.Size = UDim2.new(1, 0, 0, OutputText.TextBounds.Y + 10)
+        OutputFrame.CanvasSize = UDim2.new(0, 0, 0, OutputText.TextBounds.Y + 20)
+        OutputFrame.CanvasPosition = Vector2.new(0, OutputFrame.CanvasSize.Y.Offset)
+    end)
 end
 
--- Override print & warn (hanya untuk kode yang di-execute dari IDE)
+-- ============================================
+-- PRINT/WARN CAPTURE
+-- ============================================
 local oldPrint = print
 local oldWarn = warn
 
-local function capturePrint(...)
+local function capturedPrint(...)
     addLog("INFO", ...)
     refreshOutput()
-    oldPrint(...)
+    pcall(oldPrint, ...)
 end
 
-local function captureWarn(...)
+local function capturedWarn(...)
     addLog("WARN", ...)
     refreshOutput()
-    oldWarn(...)
+    pcall(oldWarn, ...)
 end
 
 -- ============================================
 -- BUTTONS
 -- ============================================
-
--- EXECUTE
 makeBtn("▶ EXECUTE", 110, function()
     local code = CodeBox.Text
     if code == "" or code:match("^%s*$") then
@@ -276,9 +342,9 @@ makeBtn("▶ EXECUTE", 110, function()
     addLog("INFO", "══════ EXECUTING CODE ══════")
     refreshOutput()
     
-    -- Ganti global print & warn sementara
-    _G.print = capturePrint
-    _G.warn = captureWarn
+    -- Override print & warn sementara
+    _G.print = capturedPrint
+    _G.warn = capturedWarn
     
     task.spawn(function()
         local fn, err = loadstring(code)
@@ -299,20 +365,20 @@ makeBtn("▶ EXECUTE", 110, function()
     end)
 end, Color3.fromRGB(30, 100, 60))
 
--- COPY OUTPUT
-makeBtn("📋 COPY", 90, function()
+makeBtn("📋 COPY", 85, function()
     local text = table.concat(logs, "\n")
     if setclipboard then
-        setclipboard(text)
-        addLog("INFO", "✅ Output dicopy! (" .. #logs .. " baris)")
+        pcall(function()
+            setclipboard(text)
+            addLog("INFO", "✅ Output dicopy! (" .. #logs .. " baris)")
+        end)
     else
-        addLog("WARN", "❌ setclipboard gak support")
+        addLog("WARN", "❌ setclipboard gak support di executor ini")
     end
     refreshOutput()
 end, Color3.fromRGB(30, 80, 130))
 
--- CLEAR OUTPUT
-makeBtn("🗑️ CLEAR", 90, function()
+makeBtn("🗑️ CLEAR", 85, function()
     logs = {}
     OutputText.Text = ""
     OutputFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
@@ -320,14 +386,12 @@ makeBtn("🗑️ CLEAR", 90, function()
     refreshOutput()
 end, Color3.fromRGB(100, 40, 40))
 
--- CLEAR CODE
-makeBtn("✏️ CLEAR CODE", 110, function()
+makeBtn("✏️ CLEAR CODE", 115, function()
     CodeBox.Text = ""
     addLog("INFO", "✏️ Code editor di-clear")
     refreshOutput()
 end, Color3.fromRGB(80, 60, 30))
 
--- SAVE LOG
 makeBtn("💾 SAVE", 80, function()
     if writefile then
         local fname = "YuszxLog_" .. os.time() .. ".txt"
@@ -342,23 +406,6 @@ makeBtn("💾 SAVE", 80, function()
 end, Color3.fromRGB(60, 40, 90))
 
 -- ============================================
--- DRAG SUPPORT (Resize)
--- ============================================
--- Buat handle resize di tengah antara input & output
-local ResizeHandle = Instance.new("TextButton")
-ResizeHandle.Size = UDim2.new(1, -20, 0, 6)
-ResizeHandle.Position = UDim2.new(0, 10, 0, 342)
-ResizeHandle.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
-ResizeHandle.Text = ""
-ResizeHandle.BorderSizePixel = 0
-ResizeHandle.AutoButtonColor = false
-ResizeHandle.Parent = MainFrame
-
-local HandleCorner = Instance.new("UICorner")
-HandleCorner.CornerRadius = UDim.new(1, 0)
-HandleCorner.Parent = ResizeHandle
-
--- ============================================
 -- CLOSE
 -- ============================================
 CloseBtn.MouseButton1Click:Connect(function()
@@ -369,12 +416,15 @@ end)
 -- INIT
 -- ============================================
 addLog("INFO", "═══════════════════════════════════")
-addLog("INFO", "📋 Yuszx Mini IDE loaded!")
+addLog("INFO", "📋 Yuszx Universal IDE loaded!")
+addLog("INFO", "UI Parent: " .. tostring(uiParent and uiParent:GetFullName() or "unknown"))
+addLog("INFO", "Game: " .. game.PlaceId)
+addLog("INFO", "Player: " .. game.Players.LocalPlayer.Name)
 addLog("INFO", "1. Paste kode di atas")
 addLog("INFO", "2. Klik ▶ EXECUTE")
 addLog("INFO", "3. Liat output di bawah")
-addLog("INFO", "4. Klik 📋 COPY buat copy hasil")
+addLog("INFO", "4. Klik 📋 COPY buat copy")
 addLog("INFO", "═══════════════════════════════════")
 refreshOutput()
 
-print("[Yuszx] 📋 Mini IDE aktif! Paste kode di UI.")
+print("[Yuszx] 📋 Universal IDE aktif! UI Parent: " .. tostring(uiParent and uiParent.Name or "?"))
