@@ -49,6 +49,10 @@
 ### 1. Execute Script
 
 Copy loadstring di bawah, paste ke executor:
-
+v1
+```lua
+loadstring(game:HttpGet("https://raw.githubusercontent.com/Ysufu/RBXTools/refs/heads/main/debug-cons.lua"))()
+v2
+```lua
 ```lua
 loadstring(game:HttpGet("https://raw.githubusercontent.com/Ysufu/RBXTools/refs/heads/main/debug-cons.lua"))()
