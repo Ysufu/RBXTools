@@ -1,13 +1,11 @@
 --[[
     ═══════════════════════════════════════════════════════════════
-    🔍 YUSZX SEARCH — Professional Edition
+    🔍 YUSZX SEARCH — Full Fix Edition
     ═══════════════════════════════════════════════════════════════
-    ✅ Modern clean UI
-    ✅ Smooth animations
-    ✅ Better typography
-    ✅ Loading states
-    ✅ Empty states
-    ✅ Hover effects
+    ✅ Responsive (auto-adjust layar + rotasi)
+    ✅ Multi-fetch method (request / http_request / game:HttpGet)
+    ✅ Multi search engine (DDG → Bing → SearX)
+    ✅ Better error handling
     ═══════════════════════════════════════════════════════════════
 ]]
 
@@ -42,15 +40,50 @@ if not uiParent then warn("[Search] Gak bisa dapet UI parent!") return end
 
 local HttpService = game:GetService("HttpService")
 local TweenService = game:GetService("TweenService")
+local Camera = workspace.CurrentCamera
 
 -- ============================================
--- CONFIG
+-- 🎯 RESPONSIVE
 -- ============================================
-local ENGINE_URL = "https://html.duckduckgo.com/html/?q="
+local function getOptimalSize()
+    local vp = Camera.ViewportSize
+    local w = math.min(vp.X * 0.92, 540)
+    local h = math.min(vp.Y * 0.85, 620)
+    w = math.max(w, 300)
+    h = math.max(h, 400)
+    return math.floor(w), math.floor(h)
+end
+
+local initW, initH = getOptimalSize()
+
+-- ============================================
+-- SEARCH ENGINES (Multi-fallback)
+-- ============================================
+local ENGINES = {
+    {
+        name = "DuckDuckGo",
+        url = "https://html.duckduckgo.com/html/?q=",
+        parsePattern = '<a[^>]*class="result__a"[^>]*href="([^"]+)"[^>]*>(.-)</a>',
+        decodeURL = true,
+    },
+    {
+        name = "Bing",
+        url = "https://www.bing.com/search?q=",
+        parsePattern = '<h2><a[^>]*href="([^"]+)"[^>]*>(.-)</a></h2>',
+        decodeURL = false,
+    },
+    {
+        name = "SearX",
+        url = "https://searx.be/search?q=",
+        parsePattern = '<a[^>]*href="([^"]+)"[^>]*class="url"[^>]*>(.-)</a>',
+        decodeURL = false,
+    },
+}
+
 local MAX_RESULTS = 20
 
 -- ============================================
--- COLOR PALETTE (Modern Dark)
+-- COLORS
 -- ============================================
 local C = {
     BG = Color3.fromRGB(15, 15, 20),
@@ -65,7 +98,54 @@ local C = {
     ACCENT_HOVER = Color3.fromRGB(50, 200, 255),
     GREEN = Color3.fromRGB(80, 220, 120),
     PURPLE = Color3.fromRGB(150, 80, 255),
+    RED = Color3.fromRGB(255, 100, 100),
+    YELLOW = Color3.fromRGB(255, 200, 100),
 }
+
+-- ============================================
+-- 🚀 FETCH (Multi-method)
+-- ============================================
+local function fetchURL(url)
+    -- Method 1: request()
+    if request then
+        local ok, res = pcall(request, { Url = url, Method = "GET" })
+        if ok and res and res.Body and #res.Body > 0 then
+            return res.Body, "request"
+        end
+    end
+    
+    -- Method 2: http_request()
+    if http_request then
+        local ok, res = pcall(http_request, { Url = url, Method = "GET" })
+        if ok and res and res.Body and #res.Body > 0 then
+            return res.Body, "http_request"
+        end
+    end
+    
+    -- Method 3: syn.request (Synapse)
+    if syn and syn.request then
+        local ok, res = pcall(syn.request, { Url = url, Method = "GET" })
+        if ok and res and res.Body and #res.Body > 0 then
+            return res.Body, "syn.request"
+        end
+    end
+    
+    -- Method 4: http.get (older executor)
+    if http and http.get then
+        local ok, res = pcall(http.get, url)
+        if ok and res and #res > 0 then
+            return res, "http.get"
+        end
+    end
+    
+    -- Method 5: game:HttpGet (fallback)
+    local ok, res = pcall(game.HttpGet, game, url, true)
+    if ok and res and #res > 0 then
+        return res, "game:HttpGet"
+    end
+    
+    return nil, "all methods failed"
+end
 
 -- ============================================
 -- ROOT FRAME
@@ -78,8 +158,8 @@ ScreenGui.ResetOnSpawn = false
 ScreenGui.DisplayOrder = 999
 
 local MainFrame = Instance.new("Frame")
-MainFrame.Size = UDim2.new(0, 540, 0, 620)
-MainFrame.Position = UDim2.new(0.5, -270, 0.5, -310)
+MainFrame.Size = UDim2.new(0, initW, 0, initH)
+MainFrame.Position = UDim2.new(0.5, -initW/2, 0.5, -initH/2)
 MainFrame.BackgroundColor3 = C.BG
 MainFrame.BorderSizePixel = 0
 MainFrame.Active = true
@@ -95,10 +175,9 @@ MainStroke.Color = C.BORDER
 MainStroke.Thickness = 1
 MainStroke.Parent = MainFrame
 
--- Subtle top gradient glow
+-- Top glow
 local TopGlow = Instance.new("Frame")
 TopGlow.Size = UDim2.new(1, 0, 0, 2)
-TopGlow.Position = UDim2.new(0, 0, 0, 0)
 TopGlow.BackgroundColor3 = C.ACCENT
 TopGlow.BorderSizePixel = 0
 TopGlow.Parent = MainFrame
@@ -115,7 +194,6 @@ TopGlowGrad.Color = ColorSequence.new({
 })
 TopGlowGrad.Parent = TopGlow
 
--- Animate top glow
 task.spawn(function()
     while MainFrame.Parent do
         for i = 0, 360, 20 do
@@ -131,7 +209,6 @@ end)
 -- ============================================
 local Header = Instance.new("Frame")
 Header.Size = UDim2.new(1, 0, 0, 60)
-Header.Position = UDim2.new(0, 0, 0, 2)
 Header.BackgroundColor3 = C.BG
 Header.BackgroundTransparency = 0.5
 Header.BorderSizePixel = 0
@@ -147,10 +224,8 @@ HeaderPadding.PaddingRight = UDim.new(0, 16)
 HeaderPadding.PaddingTop = UDim.new(0, 10)
 HeaderPadding.Parent = Header
 
--- Logo
 local LogoFrame = Instance.new("Frame")
 LogoFrame.Size = UDim2.new(0, 40, 0, 40)
-LogoFrame.Position = UDim2.new(0, 0, 0, 0)
 LogoFrame.BackgroundColor3 = C.BG_CARD
 LogoFrame.BorderSizePixel = 0
 LogoFrame.Parent = Header
@@ -172,9 +247,8 @@ LogoIcon.Text = "🔍"
 LogoIcon.TextSize = 20
 LogoIcon.Parent = LogoFrame
 
--- Title
 local TitleLabel = Instance.new("TextLabel")
-TitleLabel.Size = UDim2.new(1, -160, 0, 20)
+TitleLabel.Size = UDim2.new(1, -100, 0, 20)
 TitleLabel.Position = UDim2.new(0, 54, 0, 0)
 TitleLabel.BackgroundTransparency = 1
 TitleLabel.Text = "Yuszx Search"
@@ -184,19 +258,17 @@ TitleLabel.TextSize = 16
 TitleLabel.TextXAlignment = Enum.TextXAlignment.Left
 TitleLabel.Parent = Header
 
--- Subtitle
 local SubtitleLabel = Instance.new("TextLabel")
-SubtitleLabel.Size = UDim2.new(1, -160, 0, 16)
+SubtitleLabel.Size = UDim2.new(1, -100, 0, 16)
 SubtitleLabel.Position = UDim2.new(0, 54, 0, 22)
 SubtitleLabel.BackgroundTransparency = 1
-SubtitleLabel.Text = "Powered by DuckDuckGo"
+SubtitleLabel.Text = "Multi-engine search"
 SubtitleLabel.TextColor3 = C.TEXT_DIM
 SubtitleLabel.Font = Enum.Font.GothamMedium
 SubtitleLabel.TextSize = 10
 SubtitleLabel.TextXAlignment = Enum.TextXAlignment.Left
 SubtitleLabel.Parent = Header
 
--- Close button
 local CloseBtn = Instance.new("TextButton")
 CloseBtn.Size = UDim2.new(0, 34, 0, 34)
 CloseBtn.Position = UDim2.new(1, -34, 0, 3)
@@ -214,14 +286,10 @@ CloseCorner.CornerRadius = UDim.new(0, 8)
 CloseCorner.Parent = CloseBtn
 
 CloseBtn.MouseEnter:Connect(function()
-    TweenService:Create(CloseBtn, TweenInfo.new(0.2), {
-        BackgroundColor3 = Color3.fromRGB(80, 20, 30)
-    }):Play()
+    TweenService:Create(CloseBtn, TweenInfo.new(0.2), { BackgroundColor3 = Color3.fromRGB(80, 20, 30) }):Play()
 end)
 CloseBtn.MouseLeave:Connect(function()
-    TweenService:Create(CloseBtn, TweenInfo.new(0.2), {
-        BackgroundColor3 = Color3.fromRGB(40, 20, 28)
-    }):Play()
+    TweenService:Create(CloseBtn, TweenInfo.new(0.2), { BackgroundColor3 = Color3.fromRGB(40, 20, 28) }):Play()
 end)
 
 -- ============================================
@@ -252,7 +320,6 @@ SCPadding.Parent = SearchContainer
 
 local SearchIcon = Instance.new("TextLabel")
 SearchIcon.Size = UDim2.new(0, 20, 1, 0)
-SearchIcon.Position = UDim2.new(0, 0, 0, 0)
 SearchIcon.BackgroundTransparency = 1
 SearchIcon.Text = "🔍"
 SearchIcon.TextSize = 14
@@ -260,11 +327,11 @@ SearchIcon.TextColor3 = C.TEXT_SUB
 SearchIcon.Parent = SearchContainer
 
 local SearchBox = Instance.new("TextBox")
-SearchBox.Size = UDim2.new(1, -110, 1, 0)
+SearchBox.Size = UDim2.new(1, -120, 1, 0)
 SearchBox.Position = UDim2.new(0, 28, 0, 0)
 SearchBox.BackgroundTransparency = 1
 SearchBox.Text = ""
-SearchBox.PlaceholderText = "Cari apa aja di internet..."
+SearchBox.PlaceholderText = "Cari apa aja..."
 SearchBox.PlaceholderColor3 = C.TEXT_DIM
 SearchBox.TextColor3 = C.TEXT
 SearchBox.Font = Enum.Font.GothamMedium
@@ -274,8 +341,8 @@ SearchBox.ClearTextOnFocus = false
 SearchBox.Parent = SearchContainer
 
 local SearchBtn = Instance.new("TextButton")
-SearchBtn.Size = UDim2.new(0, 90, 1, 0)
-SearchBtn.Position = UDim2.new(1, -90, 0, 0)
+SearchBtn.Size = UDim2.new(0, 80, 1, 0)
+SearchBtn.Position = UDim2.new(1, -80, 0, 0)
 SearchBtn.BackgroundColor3 = C.ACCENT
 SearchBtn.Text = "Cari"
 SearchBtn.TextColor3 = Color3.fromRGB(0, 0, 0)
@@ -289,45 +356,26 @@ local SBCorner = Instance.new("UICorner")
 SBCorner.CornerRadius = UDim.new(0, 8)
 SBCorner.Parent = SearchBtn
 
--- ============================================
--- SEARCH BAR FOCUS ANIMATIONS
--- ============================================
 SearchBox.Focused:Connect(function()
-    TweenService:Create(SCStroke, TweenInfo.new(0.2), {
-        Color = C.ACCENT,
-        Transparency = 0
-    }):Play()
-    TweenService:Create(SearchContainer, TweenInfo.new(0.2), {
-        BackgroundColor3 = C.BG_CARD
-    }):Play()
+    TweenService:Create(SCStroke, TweenInfo.new(0.2), { Color = C.ACCENT, Transparency = 0 }):Play()
+    TweenService:Create(SearchContainer, TweenInfo.new(0.2), { BackgroundColor3 = C.BG_CARD }):Play()
 end)
 
 SearchBox.FocusLost:Connect(function(enter)
-    TweenService:Create(SCStroke, TweenInfo.new(0.2), {
-        Color = C.BORDER,
-        Transparency = 0
-    }):Play()
-    TweenService:Create(SearchContainer, TweenInfo.new(0.2), {
-        BackgroundColor3 = C.BG_ELEV
-    }):Play()
-    if enter then
-        performSearch(SearchBox.Text)
-    end
+    TweenService:Create(SCStroke, TweenInfo.new(0.2), { Color = C.BORDER, Transparency = 0 }):Play()
+    TweenService:Create(SearchContainer, TweenInfo.new(0.2), { BackgroundColor3 = C.BG_ELEV }):Play()
+    if enter then performSearch(SearchBox.Text) end
 end)
 
 SearchBtn.MouseEnter:Connect(function()
-    TweenService:Create(SearchBtn, TweenInfo.new(0.15), {
-        BackgroundColor3 = C.ACCENT_HOVER
-    }):Play()
+    TweenService:Create(SearchBtn, TweenInfo.new(0.15), { BackgroundColor3 = C.ACCENT_HOVER }):Play()
 end)
 SearchBtn.MouseLeave:Connect(function()
-    TweenService:Create(SearchBtn, TweenInfo.new(0.15), {
-        BackgroundColor3 = C.ACCENT
-    }):Play()
+    TweenService:Create(SearchBtn, TweenInfo.new(0.15), { BackgroundColor3 = C.ACCENT }):Play()
 end)
 
 -- ============================================
--- INFO BAR (Status + Count)
+-- INFO BAR
 -- ============================================
 local InfoBar = Instance.new("Frame")
 InfoBar.Size = UDim2.new(1, -32, 0, 24)
@@ -355,6 +403,7 @@ StatusLabel.TextColor3 = C.TEXT_SUB
 StatusLabel.Font = Enum.Font.GothamMedium
 StatusLabel.TextSize = 11
 StatusLabel.TextXAlignment = Enum.TextXAlignment.Left
+StatusLabel.TextTruncate = Enum.TextTruncate.AtEnd
 StatusLabel.Parent = InfoBar
 
 local CountLabel = Instance.new("TextLabel")
@@ -368,9 +417,6 @@ CountLabel.TextSize = 11
 CountLabel.TextXAlignment = Enum.TextXAlignment.Right
 CountLabel.Parent = InfoBar
 
--- ============================================
--- DIVIDER
--- ============================================
 local Divider = Instance.new("Frame")
 Divider.Size = UDim2.new(1, -32, 0, 1)
 Divider.Position = UDim2.new(0, 16, 0, 162)
@@ -379,7 +425,7 @@ Divider.BorderSizePixel = 0
 Divider.Parent = MainFrame
 
 -- ============================================
--- RESULTS CONTAINER
+-- RESULTS
 -- ============================================
 local ResultsScroll = Instance.new("ScrollingFrame")
 ResultsScroll.Size = UDim2.new(1, -32, 1, -230)
@@ -396,9 +442,7 @@ ResultsLayout.Padding = UDim.new(0, 8)
 ResultsLayout.SortOrder = Enum.SortOrder.LayoutOrder
 ResultsLayout.Parent = ResultsScroll
 
--- ============================================
--- EMPTY STATE
--- ============================================
+-- Empty state
 local EmptyState = Instance.new("Frame")
 EmptyState.Size = UDim2.new(1, 0, 1, 0)
 EmptyState.BackgroundTransparency = 1
@@ -424,79 +468,50 @@ EmptyText.TextSize = 14
 EmptyText.Parent = EmptyState
 
 local EmptySubtext = Instance.new("TextLabel")
-EmptySubText = Instance.new("TextLabel")
-EmptySubText.Size = UDim2.new(1, 0, 0, 20)
-EmptySubText.Position = UDim2.new(0, 0, 0.3, 74)
-EmptySubText.BackgroundTransparency = 1
-EmptySubText.Text = "Ketik keyword di atas, tekan Enter"
-EmptySubText.TextColor3 = C.TEXT_DIM
-EmptySubText.Font = Enum.Font.GothamMedium
-EmptySubText.TextSize = 11
-EmptySubText.Parent = EmptyState
+EmptySubtext.Size = UDim2.new(1, 0, 0, 20)
+EmptySubtext.Position = UDim2.new(0, 0, 0.3, 74)
+EmptySubtext.BackgroundTransparency = 1
+EmptySubtext.Text = "Ketik keyword di atas, tekan Enter"
+EmptySubtext.TextColor3 = C.TEXT_DIM
+EmptySubtext.Font = Enum.Font.GothamMedium
+EmptySubtext.TextSize = 11
+EmptySubtext.Parent = EmptyState
 
 -- ============================================
--- SEARCH LOGIC
+-- HELPERS
 -- ============================================
 local isSearching = false
 
 local function clearResults()
     for _, child in ipairs(ResultsScroll:GetChildren()) do
-        if not child:IsA("UIListLayout") then
-            child:Destroy()
-        end
+        if not child:IsA("UIListLayout") then child:Destroy() end
     end
 end
 
 local function decodeHTML(str)
     if not str then return "" end
-    str = str:gsub("&amp;", "&")
-    str = str:gsub("&lt;", "<")
-    str = str:gsub("&gt;", ">")
-    str = str:gsub("&quot;", '"')
-    str = str:gsub("&#x27;", "'")
-    str = str:gsub("&#39;", "'")
-    str = str:gsub("&nbsp;", " ")
-    str = str:gsub("&hellip;", "...")
-    str = str:gsub("&#x2F;", "/")
-    str = str:gsub("&#x3D;", "=")
+    str = str:gsub("&amp;", "&"):gsub("&lt;", "<"):gsub("&gt;", ">")
+    str = str:gsub("&quot;", '"'):gsub("&#x27;", "'"):gsub("&#39;", "'")
+    str = str:gsub("&nbsp;", " "):gsub("&hellip;", "...")
+    str = str:gsub("&#x2F;", "/"):gsub("&#x3D;", "=")
     return str
 end
 
 local function stripTags(str)
     if not str then return "" end
-    str = str:gsub("<[^>]+>", "")
-    return decodeHTML(str)
+    return decodeHTML(str:gsub("<[^>]+>", ""))
 end
 
-local function fetch(url)
-    local methods = {
-        function() return game:HttpGet(url, true) end,
-        function() return request({ Url = url, Method = "GET" }).Body end,
-        function() return http_request({ Url = url, Method = "GET" }).Body end,
-    }
-    for _, method in ipairs(methods) do
-        local ok, result = pcall(method)
-        if ok and result and #result > 0 then return result end
-    end
-    return nil
-end
-
--- Get domain from URL
 local function getDomain(url)
     if not url then return "" end
-    local domain = url:match("^https?://([^/]+)")
-    if domain then
-        domain = domain:gsub("^www%.", "")
-        return domain
-    end
+    local d = url:match("^https?://([^/]+)")
+    if d then return d:gsub("^www%.", "") end
     return url
 end
 
--- Show loading skeleton
 local function showLoading()
     clearResults()
     EmptyState.Visible = false
-    
     for i = 1, 5 do
         local skeleton = Instance.new("Frame")
         skeleton.Size = UDim2.new(1, 0, 0, 66)
@@ -504,22 +519,17 @@ local function showLoading()
         skeleton.BorderSizePixel = 0
         skeleton.LayoutOrder = i
         skeleton.Parent = ResultsScroll
-        
-        local skCorner = Instance.new("UICorner")
-        skCorner.CornerRadius = UDim.new(0, 10)
-        skCorner.Parent = skeleton
-        
-        -- Shimmer
+        local skc = Instance.new("UICorner")
+        skc.CornerRadius = UDim.new(0, 10)
+        skc.Parent = skeleton
         local shimmer = Instance.new("Frame")
         shimmer.Size = UDim2.new(0, 200, 1, 0)
         shimmer.BackgroundColor3 = C.BG_CARD
         shimmer.BorderSizePixel = 0
         shimmer.Parent = skeleton
-        
-        local shimmerCorner = Instance.new("UICorner")
-        shimmerCorner.CornerRadius = UDim.new(0, 10)
-        shimmerCorner.Parent = shimmer
-        
+        local shc = Instance.new("UICorner")
+        shc.CornerRadius = UDim.new(0, 10)
+        shc.Parent = shimmer
         task.spawn(function()
             while shimmer.Parent do
                 for x = -1, 1, 0.02 do
@@ -532,8 +542,7 @@ local function showLoading()
     end
 end
 
--- Create result card
-local function createResultCard(num, title, url, snippet)
+local function createResultCard(num, title, url)
     local card = Instance.new("TextButton")
     card.Size = UDim2.new(1, 0, 0, 0)
     card.AutomaticSize = Enum.AutomaticSize.Y
@@ -543,50 +552,48 @@ local function createResultCard(num, title, url, snippet)
     card.AutoButtonColor = false
     card.LayoutOrder = num
     card.Parent = ResultsScroll
-    
-    local cardCorner = Instance.new("UICorner")
-    cardCorner.CornerRadius = UDim.new(0, 10)
-    cardCorner.Parent = card
-    
-    local cardStroke = Instance.new("UIStroke")
-    cardStroke.Color = C.BORDER
-    cardStroke.Thickness = 1
-    cardStroke.Transparency = 0.5
-    cardStroke.Parent = card
-    
-    local cardPad = Instance.new("UIPadding")
-    cardPad.PaddingTop = UDim.new(0, 10)
-    cardPad.PaddingBottom = UDim.new(0, 10)
-    cardPad.PaddingLeft = UDim.new(0, 14)
-    cardPad.PaddingRight = UDim.new(0, 14)
-    cardPad.Parent = card
-    
-    local cardLayout = Instance.new("UIListLayout")
-    cardLayout.Padding = UDim.new(0, 4)
-    cardLayout.SortOrder = Enum.SortOrder.LayoutOrder
-    cardLayout.Parent = card
-    
-    -- Row 1: Number + Domain
+
+    local c1 = Instance.new("UICorner")
+    c1.CornerRadius = UDim.new(0, 10)
+    c1.Parent = card
+
+    local c2 = Instance.new("UIStroke")
+    c2.Color = C.BORDER
+    c2.Thickness = 1
+    c2.Transparency = 0.5
+    c2.Parent = card
+
+    local pad = Instance.new("UIPadding")
+    pad.PaddingTop = UDim.new(0, 10)
+    pad.PaddingBottom = UDim.new(0, 10)
+    pad.PaddingLeft = UDim.new(0, 14)
+    pad.PaddingRight = UDim.new(0, 14)
+    pad.Parent = card
+
+    local layout = Instance.new("UIListLayout")
+    layout.Padding = UDim.new(0, 4)
+    layout.SortOrder = Enum.SortOrder.LayoutOrder
+    layout.Parent = card
+
     local row1 = Instance.new("Frame")
     row1.Size = UDim2.new(1, 0, 0, 18)
     row1.BackgroundTransparency = 1
     row1.LayoutOrder = 1
     row1.Parent = card
-    
+
     local numLabel = Instance.new("TextLabel")
     numLabel.Size = UDim2.new(0, 22, 1, 0)
-    numLabel.Position = UDim2.new(0, 0, 0, 0)
     numLabel.BackgroundColor3 = C.ACCENT
     numLabel.Text = tostring(num)
     numLabel.TextColor3 = Color3.fromRGB(0, 0, 0)
     numLabel.Font = Enum.Font.GothamBold
     numLabel.TextSize = 10
     numLabel.Parent = row1
-    
-    local numCorner = Instance.new("UICorner")
-    numCorner.CornerRadius = UDim.new(0, 4)
-    numCorner.Parent = numLabel
-    
+
+    local nc = Instance.new("UICorner")
+    nc.CornerRadius = UDim.new(0, 4)
+    nc.Parent = numLabel
+
     local domainLabel = Instance.new("TextLabel")
     domainLabel.Size = UDim2.new(1, -30, 1, 0)
     domainLabel.Position = UDim2.new(0, 28, 0, 0)
@@ -597,8 +604,7 @@ local function createResultCard(num, title, url, snippet)
     domainLabel.TextSize = 10
     domainLabel.TextXAlignment = Enum.TextXAlignment.Left
     domainLabel.Parent = row1
-    
-    -- Row 2: Title
+
     local titleLabel = Instance.new("TextLabel")
     titleLabel.Size = UDim2.new(1, 0, 0, 0)
     titleLabel.AutomaticSize = Enum.AutomaticSize.Y
@@ -611,180 +617,154 @@ local function createResultCard(num, title, url, snippet)
     titleLabel.TextWrapped = true
     titleLabel.LayoutOrder = 2
     titleLabel.Parent = card
-    
-    -- Row 3: Snippet
-    if snippet and #snippet > 5 then
-        local snippetLabel = Instance.new("TextLabel")
-        snippetLabel.Size = UDim2.new(1, 0, 0, 0)
-        snippetLabel.AutomaticSize = Enum.AutomaticSize.Y
-        snippetLabel.BackgroundTransparency = 1
-        snippetLabel.Text = snippet
-        snippetLabel.TextColor3 = C.TEXT_SUB
-        snippetLabel.Font = Enum.Font.GothamMedium
-        snippetLabel.TextSize = 11
-        snippetLabel.TextXAlignment = Enum.TextXAlignment.Left
-        snippetLabel.TextWrapped = true
-        snippetLabel.LayoutOrder = 3
-        snippetLabel.Parent = card
-    end
-    
-    -- Row 4: Action hint
-    local actionHint = Instance.new("TextLabel")
-    actionHint.Size = UDim2.new(1, 0, 0, 14)
-    actionHint.BackgroundTransparency = 1
-    actionHint.Text = "📋 Tap untuk copy link"
-    actionHint.TextColor3 = C.TEXT_DIM
-    actionHint.Font = Enum.Font.GothamMedium
-    actionHint.TextSize = 9
-    actionHint.TextXAlignment = Enum.TextXAlignment.Left
-    actionHint.LayoutOrder = 4
-    actionHint.Parent = card
-    
-    -- Hover
+
+    local hint = Instance.new("TextLabel")
+    hint.Size = UDim2.new(1, 0, 0, 14)
+    hint.BackgroundTransparency = 1
+    hint.Text = "📋 Tap untuk copy link"
+    hint.TextColor3 = C.TEXT_DIM
+    hint.Font = Enum.Font.GothamMedium
+    hint.TextSize = 9
+    hint.TextXAlignment = Enum.TextXAlignment.Left
+    hint.LayoutOrder = 3
+    hint.Parent = card
+
     card.MouseEnter:Connect(function()
-        TweenService:Create(card, TweenInfo.new(0.15), {
-            BackgroundColor3 = C.BG_CARD_HOVER
-        }):Play()
-        TweenService:Create(cardStroke, TweenInfo.new(0.15), {
-            Color = C.ACCENT,
-            Transparency = 0.3
-        }):Play()
+        TweenService:Create(card, TweenInfo.new(0.15), { BackgroundColor3 = C.BG_CARD_HOVER }):Play()
+        TweenService:Create(c2, TweenInfo.new(0.15), { Color = C.ACCENT, Transparency = 0.3 }):Play()
     end)
     card.MouseLeave:Connect(function()
-        TweenService:Create(card, TweenInfo.new(0.15), {
-            BackgroundColor3 = C.BG_ELEV
-        }):Play()
-        TweenService:Create(cardStroke, TweenInfo.new(0.15), {
-            Color = C.BORDER,
-            Transparency = 0.5
-        }):Play()
+        TweenService:Create(card, TweenInfo.new(0.15), { BackgroundColor3 = C.BG_ELEV }):Play()
+        TweenService:Create(c2, TweenInfo.new(0.15), { Color = C.BORDER, Transparency = 0.5 }):Play()
     end)
-    
-    -- Click to copy
+
     card.MouseButton1Click:Connect(function()
         if setclipboard then
             setclipboard(url)
-            StatusLabel.Text = "✅ Link dicopy ke clipboard!"
+            StatusLabel.Text = "✅ Link dicopy!"
             StatusLabel.TextColor3 = C.GREEN
-            
-            TweenService:Create(card, TweenInfo.new(0.2), {
-                BackgroundColor3 = Color3.fromRGB(0, 80, 50)
-            }):Play()
+            TweenService:Create(card, TweenInfo.new(0.2), { BackgroundColor3 = Color3.fromRGB(0, 80, 50) }):Play()
             task.wait(0.4)
-            TweenService:Create(card, TweenInfo.new(0.2), {
-                BackgroundColor3 = C.BG_ELEV
-            }):Play()
+            TweenService:Create(card, TweenInfo.new(0.2), { BackgroundColor3 = C.BG_ELEV }):Play()
         else
             StatusLabel.Text = "❌ setclipboard gak support"
-            StatusLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
+            StatusLabel.TextColor3 = C.RED
         end
     end)
-    
-    return card
 end
 
 -- ============================================
--- PERFORM SEARCH
+-- 🚀 PERFORM SEARCH
 -- ============================================
 function performSearch(query)
     if isSearching then return end
     if query == "" or query:match("^%s*$") then
         StatusLabel.Text = "⚠️ Ketik keyword dulu!"
-        StatusLabel.TextColor3 = Color3.fromRGB(255, 200, 100)
+        StatusLabel.TextColor3 = C.YELLOW
+        StatusDot.BackgroundColor3 = C.YELLOW
         return
     end
-    
+
     isSearching = true
     CountLabel.Text = ""
     StatusLabel.Text = "Mencari..."
     StatusLabel.TextColor3 = C.ACCENT
-    StatusDot.BackgroundColor3 = Color3.fromRGB(255, 200, 100)
-    
+    StatusDot.BackgroundColor3 = C.YELLOW
+
     showLoading()
-    
+
     task.spawn(function()
-        local url = ENGINE_URL .. HttpService:UrlEncode(query)
-        local response = fetch(url)
-        
-        if not response then
-            clearResults()
+        local encodedQuery = HttpService:UrlEncode(query)
+        local results = {}
+        local usedEngine = nil
+        local lastError = ""
+
+        -- Coba setiap engine satu-satu
+        for _, engine in ipairs(ENGINES) do
+            StatusLabel.Text = "🔍 Coba " .. engine.name .. "..."
+            
+            local url = engine.url .. encodedQuery
+            local response, method = fetchURL(url)
+            
+            if response and #response > 100 then
+                -- Parse results
+                local tempResults = {}
+                for link, title in response:gmatch(engine.parsePattern) do
+                    if #tempResults >= MAX_RESULTS then break end
+                    title = stripTags(title)
+                    
+                    -- Decode URL kalau perlu
+                    if engine.decodeURL and link:find("uddg=") then
+                        local d = link:match("uddg=([^&]+)")
+                        if d then link = HttpService:UrlDecode(d) end
+                    end
+                    
+                    if link:find("^//") then link = "https:" .. link end
+                    
+                    if link and title and #title > 3 and link:find("^https?://") then
+                        table.insert(tempResults, { title = title, url = link })
+                    end
+                end
+                
+                if #tempResults > 0 then
+                    results = tempResults
+                    usedEngine = engine.name .. " (" .. method .. ")"
+                    break
+                else
+                    lastError = engine.name .. ": 0 hasil"
+                end
+            else
+                lastError = engine.name .. ": gagal fetch (" .. method .. ")"
+            end
+        end
+
+        clearResults()
+
+        if #results == 0 then
             EmptyState.Visible = true
-            StatusLabel.Text = "❌ Gagal akses. Cek koneksi internet."
-            StatusLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
-            StatusDot.BackgroundColor3 = Color3.fromRGB(255, 100, 100)
+            StatusLabel.Text = "❌ Gagal. " .. (lastError or "Semua engine failed")
+            StatusLabel.TextColor3 = C.RED
+            StatusDot.BackgroundColor3 = C.RED
             isSearching = false
             return
         end
-        
-        clearResults()
-        
-        local count = 0
-        local results = {}
-        
-        -- Parse results
-        for link, title in response:gmatch('<a[^>]*class="result__a"[^>]*href="([^"]+)"[^>]*>(.-)</a>') do
-            if count >= MAX_RESULTS then break end
-            
-            title = stripTags(title)
-            
-            -- Decode URL
-            if link:find("uddg=") then
-                local decoded = link:match("uddg=([^&]+)")
-                if decoded then link = HttpService:UrlDecode(decoded) end
-            end
-            if link:find("^//") then link = "https:" .. link end
-            
-            -- Try to find snippet near this link
-            local snippet = ""
-            local linkPos = response:find(link:gsub("([%(%)%.%%%+%-%*%?%[%]%^%$])", "%%%1"), 1, true)
-            
-            if link and title and #title > 3 and link:find("^https?://") then
-                count = count + 1
-                table.insert(results, {
-                    num = count,
-                    title = title,
-                    url = link,
-                    snippet = snippet
-                })
-            end
+
+        for i, r in ipairs(results) do
+            createResultCard(i, r.title, r.url)
         end
-        
-        if count == 0 then
-            EmptyState.Visible = true
-            StatusLabel.Text = "❌ Gak ada hasil. Coba keyword lain."
-            StatusLabel.TextColor3 = Color3.fromRGB(255, 150, 150)
-            StatusDot.BackgroundColor3 = Color3.fromRGB(255, 100, 100)
-        else
-            for _, r in ipairs(results) do
-                createResultCard(r.num, r.title, r.url, r.snippet)
-            end
-            
-            StatusLabel.Text = "Hasil untuk: " .. query
-            StatusLabel.TextColor3 = C.TEXT_SUB
-            StatusDot.BackgroundColor3 = C.GREEN
-            CountLabel.Text = count .. " hasil"
-            
-            task.wait(0.1)
-            ResultsScroll.CanvasSize = UDim2.new(0, 0, 0, ResultsLayout.AbsoluteContentSize.Y + 20)
-        end
-        
+
+        StatusLabel.Text = "✅ " .. #results .. " hasil • " .. (usedEngine or "")
+        StatusLabel.TextColor3 = C.TEXT_SUB
+        StatusDot.BackgroundColor3 = C.GREEN
+        CountLabel.Text = #results .. " hasil"
+
+        task.wait(0.1)
+        ResultsScroll.CanvasSize = UDim2.new(0, 0, 0, ResultsLayout.AbsoluteContentSize.Y + 20)
         isSearching = false
     end)
 end
 
+-- Events
+SearchBtn.MouseButton1Click:Connect(function() performSearch(SearchBox.Text) end)
+CloseBtn.MouseButton1Click:Connect(function() ScreenGui:Destroy() end)
+
 -- ============================================
--- EVENT HANDLERS
+-- AUTO-RESPONSIVE
 -- ============================================
-SearchBtn.MouseButton1Click:Connect(function()
-    performSearch(SearchBox.Text)
+local lastVP = Camera.ViewportSize
+
+Camera:GetPropertyChangedSignal("ViewportSize"):Connect(function()
+    local vp = Camera.ViewportSize
+    if vp == lastVP then return end
+    lastVP = vp
+    task.wait(0.1)
+    local w, h = getOptimalSize()
+    MainFrame.Size = UDim2.new(0, w, 0, h)
+    MainFrame.Position = UDim2.new(0.5, -w/2, 0.5, -h/2)
 end)
 
-CloseBtn.MouseButton1Click:Connect(function()
-    ScreenGui:Destroy()
-end)
-
--- Auto focus search box
+-- Auto focus
 task.wait(0.3)
 pcall(function() SearchBox:CaptureFocus() end)
 
-print("[Yuszx] 🔍 Professional Search loaded!")
+print("[Yuszx] 🔍 Full Fix Search loaded!")
